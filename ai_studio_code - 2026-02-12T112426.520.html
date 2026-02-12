@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>SUPER NEON // PURE MATH v6.0</title>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --p1-color: #00f3ff;
+            --p2-color: #ff0055;
+            --bg-dark: #050510;
+            --glass-bg: rgba(255, 255, 255, 0.03);
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --active-color: var(--p1-color); 
+        }
+
+        * { box-sizing: border-box; user-select: none; -webkit-tap-highlight-color: transparent; }
+
+        body {
+            margin: 0;
+            background-color: var(--bg-dark);
+            background-image: 
+                radial-gradient(circle at 50% 50%, rgba(20, 20, 40, 0.5) 0%, #000 100%),
+                linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+            background-size: 100% 100%, 20px 20px, 20px 20px;
+            font-family: 'Orbitron', sans-serif;
+            height: 100dvh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            overflow: hidden;
+        }
+
+        /* Ambient Glow */
+        body::before {
+            content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(circle at center, var(--active-color), transparent 60%);
+            opacity: 0.08; transition: background 0.5s ease; pointer-events: none; z-index: -1;
+        }
+
+        .game-ui {
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            gap: 15px; width: 100%; max-width: 500px; padding: 10px; height: 100%; max-height: 900px; position: relative;
+        }
+
+        /* HUD Styles */
+        .hud {
+            display: flex; justify-content: space-between; width: 100%;
+            background: var(--glass-bg); backdrop-filter: blur(10px);
+            padding: 12px; border-radius: 12px;
+            border: 1px solid var(--glass-border);
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            border-bottom: 2px solid var(--active-color);
+            flex-shrink: 0; transition: border-color 0.5s; z-index: 10;
+        }
+
+        .player-score {
+            display: flex; flex-direction: column; align-items: center; 
+            font-size: 0.7rem; opacity: 0.5; transition: all 0.3s; min-width: 130px; 
+        }
+
+        #p1-score-box { align-items: flex-start; text-align: left; }
+        #p2-score-box { align-items: flex-end; text-align: right; }
+
+        .player-score.active { opacity: 1; transform: scale(1.05); text-shadow: 0 0 10px var(--active-color); }
+        .player-score span { font-size: 0.85rem; font-weight: 900; margin-top: 4px; white-space: nowrap; }
+
+        /* LOADING / COMPUTING UI */
+        .ai-status { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+        .progress-text { font-size: 0.7rem; color: var(--p2-color); font-family: monospace; }
+        .spinner {
+            width: 12px; height: 12px; border: 2px solid rgba(255,255,255,0.1);
+            border-top: 2px solid var(--p2-color); border-radius: 50%;
+            animation: spin 0.5s linear infinite; display: none;
+        }
+        .thinking .spinner { display: block; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* MAIN BOARD */
+        .main-board {
+            display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr);
+            gap: 8px; width: 100%; aspect-ratio: 1 / 1; padding: 8px;
+            background: rgba(0, 0, 0, 0.4); border-radius: 16px;
+            border: 1px solid var(--glass-border); box-shadow: 0 0 30px rgba(0,0,0,0.5); position: relative;
+        }
+
+        /* SUB BOARD */
+        .sub-board {
+            display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr);
+            gap: 2px; background: rgba(255,255,255,0.02); border-radius: 8px;
+            border: 1px solid transparent; position: relative;
+            transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s, border-color 0.3s;
+            overflow: hidden; z-index: 1;
+        }
+
+        /* Zoom / Expand Logic */
+        .main-board.has-focus .sub-board:not(.expanded) { opacity: 0.1; filter: blur(2px); pointer-events: none; }
+
+        .sub-board.expanded {
+            z-index: 100; border-color: var(--active-color);
+            box-shadow: 0 0 50px rgba(0,0,0,0.8); background: #0a0a15; 
+        }
+        .sub-board.expanded .cell { border-color: rgba(255,255,255,0.1); }
+
+        /* Highlight legal moves */
+        .sub-board.valid-target:not(.expanded) {
+            border-color: var(--active-color); box-shadow: inset 0 0 15px rgba(var(--active-rgb), 0.2);
+            background: rgba(var(--active-rgb), 0.05); cursor: pointer; animation: pulseTarget 1.5s infinite;
+        }
+        .sub-board.valid-target:hover:not(.expanded) { background: rgba(var(--active-rgb), 0.15); transform: scale(1.02); }
+
+        .sub-board.won-p1 { border: 2px solid var(--p1-color); background: rgba(0, 243, 255, 0.1); }
+        .sub-board.won-p2 { border: 2px solid var(--p2-color); background: rgba(255, 0, 85, 0.1); }
+        .sub-board.draw { opacity: 0.5; }
+
+        @keyframes pulseTarget {
+            0% { box-shadow: inset 0 0 5px var(--active-color); }
+            50% { box-shadow: inset 0 0 20px var(--active-color); }
+            100% { box-shadow: inset 0 0 5px var(--active-color); }
+        }
+
+        /* CELLS */
+        .cell {
+            background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.02);
+            display: flex; align-items: center; justify-content: center; cursor: default; transition: background 0.2s;
+        }
+        .sub-board.expanded .cell:not(.taken) { cursor: pointer; }
+        .sub-board.expanded .cell:not(.taken):hover { background: rgba(255,255,255,0.2); }
+
+        /* Icons */
+        .mark-svg { width: 70%; height: 70%; filter: drop-shadow(0 0 2px currentColor); animation: popIn 0.3s; }
+        .big-mark {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0);
+            width: 80%; height: 80%; z-index: 10; opacity: 0.8;
+            filter: drop-shadow(0 0 10px currentColor); animation: popBig 0.5s forwards;
+        }
+
+        @keyframes popIn { 0% { transform: scale(0); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+        @keyframes popBig { 0% { transform: translate(-50%, -50%) scale(0); } 100% { transform: translate(-50%, -50%) scale(1); } }
+
+        .p1-mark { color: var(--p1-color); }
+        .p2-mark { color: var(--p2-color); }
+
+        /* UI Controls */
+        .settings, .controls { width: 100%; display: flex; gap: 10px; flex-shrink: 0; z-index: 10; }
+        .settings { flex-direction: column; gap: 8px; }
+        .mode-selection, .difficulty-selection { display: flex; gap: 8px; width: 100%; }
+        .difficulty-selection { display: none; }
+        
+        .btn {
+            background: var(--glass-bg); border: 1px solid var(--glass-border); color: white;
+            font-family: 'Orbitron', sans-serif; padding: 10px; border-radius: 6px;
+            cursor: pointer; transition: all 0.2s; text-transform: uppercase;
+            font-size: 0.75rem; backdrop-filter: blur(5px); flex: 1; display: flex; align-items: center; justify-content: center;
+        }
+        .btn:hover, .btn.active {
+            background: rgba(255,255,255,0.1); border-color: var(--active-color);
+            box-shadow: 0 0 10px var(--active-color); text-shadow: 0 0 5px white;
+        }
+        .btn.active { background: rgba(var(--active-rgb), 0.15); }
+
+        /* Cancel Zoom Button */
+        .cancel-zoom-btn {
+            position: absolute; bottom: 80px; left: 50%;
+            transform: translateX(-50%) translateY(20px);
+            background: rgba(0,0,0,0.8); border: 1px solid var(--active-color);
+            color: var(--active-color); padding: 8px 20px; border-radius: 20px;
+            font-family: 'Orbitron', sans-serif; text-transform: uppercase;
+            font-size: 0.8rem; cursor: pointer; opacity: 0; pointer-events: none;
+            transition: all 0.3s; z-index: 150;
+        }
+        .cancel-zoom-btn.visible { opacity: 1; pointer-events: auto; transform: translateX(-50%) translateY(0); }
+        .cancel-zoom-btn:hover { background: var(--active-color); color: black; }
+
+        /* Modal */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9); backdrop-filter: blur(10px);
+            display: flex; align-items: center; justify-content: center;
+            opacity: 0; pointer-events: none; transition: opacity 0.5s; z-index: 200;
+        }
+        .modal-overlay.visible { opacity: 1; pointer-events: auto; }
+        .modal {
+            background: #0a0a15; padding: 30px; border-radius: 20px; text-align: center;
+            border: 2px solid var(--active-color); box-shadow: 0 0 50px var(--active-color);
+            transform: scale(0.9); transition: transform 0.4s; max-width: 90%;
+        }
+        .modal-overlay.visible .modal { transform: scale(1); }
+        .modal h2 { margin: 0 0 10px; font-size: 2rem; color: var(--active-color); text-shadow: 0 0 15px currentColor; }
+        .btn-modal {
+            background: var(--active-color); color: #000; font-weight: 900; border: none;
+            padding: 15px 40px; font-size: 1rem; border-radius: 50px; cursor: pointer;
+            font-family: 'Orbitron', sans-serif; margin-top: 20px;
+            box-shadow: 0 0 20px var(--active-color); transition: transform 0.2s;
+        }
+        .btn-modal:hover { transform: scale(1.05); }
+
+        @media (max-width: 400px) {
+            .game-ui { padding: 5px; gap: 10px; }
+            .main-board { gap: 4px; padding: 4px; border-radius: 8px; }
+            .sub-board { border-radius: 4px; }
+            .hud { padding: 8px; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="game-ui">
+         <div class="settings">
+            <div class="mode-selection">
+                <button class="btn active" id="mode-pvp" onclick="game.setMode('pvp')">PVP</button>
+                <button class="btn" id="mode-cpu" onclick="game.setMode('cpu')">VS CPU</button>
+            </div>
+            <div class="difficulty-selection" id="difficulty-selection">
+                <button class="btn" id="diff-easy" onclick="game.setDifficulty('easy')">FÁCIL</button>
+                <button class="btn active" id="diff-normal" onclick="game.setDifficulty('normal')">NORMAL</button>
+                <button class="btn" id="diff-hard" onclick="game.setDifficulty('hard')">PURE MATH</button>
+            </div>
+        </div>
+
+        <div class="hud">
+            <div class="player-score active" id="p1-score-box">
+                <div style="color: var(--p1-color);">JOGADOR 1</div>
+                <span id="status-text">ESCOLHA O TABULEIRO</span>
+            </div>
+            <div class="player-score" id="p2-score-box">
+                <div style="color: var(--p2-color);" id="p2-label">JOGADOR 2</div>
+                <div class="ai-status">
+                    <span id="p2-status-text">AGUARDANDO...</span>
+                    <div class="spinner" id="cpu-spinner"></div>
+                    <span id="cpu-progress" class="progress-text"></span>
+                </div>
+            </div>
+        </div>
+
+        <div class="main-board" id="main-board"></div>
+        <button class="cancel-zoom-btn" id="cancel-zoom" onclick="game.unfocusBoard()">CANCELAR ZOOM</button>
+
+        <div class="controls">
+            <button class="btn" onclick="game.init()">REINICIAR SISTEMA</button>
+            <button class="btn" onclick="audio.toggle()" id="btn-sound">SOM: LIGADO</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="modal-overlay">
+        <div class="modal">
+            <div id="winner-icon-container" style="width: 80px; height: 80px; margin: 0 auto 20px;"></div>
+            <h2 id="winner-text">JOGADOR 1 VENCEU!</h2>
+            <p id="winner-sub" style="color: #aaa; margin: 0;">DOMÍNIO TOTAL DO SISTEMA</p>
+            <button class="btn-modal" onclick="game.init()">NOVA PARTIDA</button>
+        </div>
+    </div>
+
+<script>
+    // --- WAKE LOCK API ---
+    let wakeLock = null;
+    const requestWakeLock = async () => {
+        try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (err) {}
+    };
+    document.addEventListener('visibilitychange', async () => { if (wakeLock !== null && document.visibilityState === 'visible') await requestWakeLock(); });
+
+    // --- AUDIO ENGINE ---
+    const audio = {
+        ctx: null, enabled: true,
+        init: function() {
+            if (!this.ctx) { this.ctx = new (window.AudioContext || window.webkitAudioContext)(); }
+            if (this.ctx.state === 'suspended') this.ctx.resume();
+        },
+        toggle: function() { 
+            this.enabled = !this.enabled; 
+            const btn = document.getElementById('btn-sound'); 
+            btn.innerText = `SOM: ${this.enabled ? 'LIGADO' : 'DESLIGADO'}`;
+            btn.style.opacity = this.enabled ? '1' : '0.5';
+            if(this.enabled) this.init();
+        },
+        playTone: function(freq, type, duration, vol, slideTo = null) {
+            if (!this.enabled || !this.ctx) return;
+            const osc = this.ctx.createOscillator(); const gain = this.ctx.createGain(); const now = this.ctx.currentTime;
+            osc.type = type; osc.frequency.setValueAtTime(freq, now);
+            if(slideTo) osc.frequency.exponentialRampToValueAtTime(slideTo, now + duration);
+            gain.gain.setValueAtTime(0, now); gain.gain.linearRampToValueAtTime(vol, now + 0.02); gain.gain.exponentialRampToValueAtTime(0.01, now + duration);
+            osc.connect(gain); gain.connect(this.ctx.destination); osc.start(now); osc.stop(now + duration);
+        },
+        sfx: {
+            ui: () => audio.playTone(1200, 'triangle', 0.1, 0.1),
+            zoom: () => audio.playTone(200, 'sine', 0.4, 0.1, 600),
+            moveP1: () => audio.playTone(880, 'sine', 0.15, 0.2, 1200),
+            moveP2: () => audio.playTone(440, 'triangle', 0.15, 0.2, 220),
+            subWin: () => { audio.playTone(440, 'square', 0.3, 0.1); setTimeout(() => audio.playTone(660, 'square', 0.3, 0.1), 100); },
+            gameWin: () => { [0, 0.2, 0.4].forEach((d, i) => setTimeout(() => audio.playTone(440 * (i+1), 'sawtooth', 0.5, 0.2), d*1000)); },
+            error: () => audio.playTone(150, 'sawtooth', 0.2, 0.3, 100)
+        }
+    };
+
+    // --- GAME CONSTANTS ---
+    const ICONS = {
+        x: `<svg viewBox="0 0 100 100" class="mark-svg p1-mark"><line x1="20" y1="20" x2="80" y2="80" stroke="currentColor" stroke-width="12" stroke-linecap="round" /><line x1="80" y1="20" x2="20" y2="80" stroke="currentColor" stroke-width="12" stroke-linecap="round" /></svg>`,
+        o: `<svg viewBox="0 0 100 100" class="mark-svg p2-mark"><circle cx="50" cy="50" r="32" stroke="currentColor" stroke-width="12" fill="none" /></svg>`
+    };
+    const BIG_ICONS = {
+        x: `<svg viewBox="0 0 100 100" class="big-mark p1-mark"><line x1="15" y1="15" x2="85" y2="85" stroke="currentColor" stroke-width="15" stroke-linecap="round" /><line x1="85" y1="15" x2="15" y2="85" stroke="currentColor" stroke-width="15" stroke-linecap="round" /></svg>`,
+        o: `<svg viewBox="0 0 100 100" class="big-mark p2-mark"><circle cx="50" cy="50" r="35" stroke="currentColor" stroke-width="15" fill="none" /></svg>`
+    };
+    const WIN_COMBOS = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+
+    // --- LOGIC ---
+    const game = {
+        globalBoard: [], subBoards: [], turn: 'p1', nextBoard: -1, mode: 'pvp', difficulty: 'normal', gameOver: false, focusedBoard: -1,
+        isThinking: false,
+
+        init: function() {
+            this.globalBoard = Array(9).fill(null);
+            this.subBoards = Array.from({length: 9}, () => Array(9).fill(null));
+            this.turn = 'p1';
+            this.nextBoard = -1;
+            this.gameOver = false;
+            this.focusedBoard = -1;
+            this.isThinking = false;
+            requestWakeLock();
+            this.renderBoard();
+            this.updateStatus();
+            document.getElementById('modal-overlay').classList.remove('visible');
+            document.getElementById('main-board').classList.remove('has-focus');
+            document.getElementById('cancel-zoom').classList.remove('visible');
+            document.getElementById('cpu-progress').innerText = '';
+            audio.sfx.ui();
+        },
+
+        setMode: function(m) {
+            this.mode = m;
+            document.getElementById('mode-pvp').classList.toggle('active', m === 'pvp');
+            document.getElementById('mode-cpu').classList.toggle('active', m === 'cpu');
+            document.getElementById('difficulty-selection').style.display = m === 'cpu' ? 'flex' : 'none';
+            document.getElementById('p2-label').innerText = m === 'cpu' ? 'CPU' : 'JOGADOR 2';
+            this.init();
+        },
+
+        setDifficulty: function(d) {
+            this.difficulty = d;
+            ['easy', 'normal', 'hard'].forEach(l => document.getElementById(`diff-${l}`).classList.toggle('active', l===d));
+            this.init();
+        },
+
+        renderBoard: function() {
+            const container = document.getElementById('main-board');
+            container.innerHTML = '';
+            for(let i=0; i<9; i++) {
+                const subDiv = document.createElement('div');
+                subDiv.className = 'sub-board';
+                subDiv.id = `sub-${i}`;
+                subDiv.onclick = (e) => { e.stopPropagation(); this.handleBoardClick(i); };
+                for(let j=0; j<9; j++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    cell.id = `cell-${i}-${j}`;
+                    cell.onclick = (e) => { e.stopPropagation(); this.handleCellClick(i, j); };
+                    subDiv.appendChild(cell);
+                }
+                container.appendChild(subDiv);
+            }
+            this.highlightValidBoards();
+        },
+
+        handleBoardClick: function(boardIdx) {
+            if(this.gameOver || this.isThinking) return;
+            if(this.focusedBoard !== -1) return; 
+            if(this.mode === 'cpu' && this.turn === 'p2') return;
+            if(this.globalBoard[boardIdx] !== null) { audio.sfx.error(); return; } 
+            if(this.nextBoard !== -1 && this.nextBoard !== boardIdx) { audio.sfx.error(); return; }
+            this.focusBoard(boardIdx);
+        },
+
+        handleCellClick: function(boardIdx, cellIdx) {
+            if(this.gameOver || this.isThinking) return;
+            if(this.focusedBoard !== boardIdx) { this.handleBoardClick(boardIdx); return; }
+            if(this.subBoards[boardIdx][cellIdx] !== null) { audio.sfx.error(); return; }
+            this.executeMove(boardIdx, cellIdx);
+            this.unfocusBoard();
+        },
+
+        focusBoard: function(boardIdx) {
+            this.focusedBoard = boardIdx;
+            const mainBoard = document.getElementById('main-board');
+            mainBoard.classList.add('has-focus');
+            const subDiv = document.getElementById(`sub-${boardIdx}`);
+            subDiv.classList.add('expanded');
+            const row = Math.floor(boardIdx / 3);
+            const col = boardIdx % 3;
+            subDiv.style.transform = `translate(${(1 - col) * 101}%, ${(1 - row) * 101}%) scale(3.05)`;
+            document.getElementById('cancel-zoom').classList.add('visible');
+            audio.sfx.zoom();
+            this.highlightValidBoards();
+        },
+
+        unfocusBoard: function() {
+            if(this.focusedBoard === -1) return;
+            const subDiv = document.getElementById(`sub-${this.focusedBoard}`);
+            if(subDiv) { subDiv.classList.remove('expanded'); subDiv.style.transform = ''; }
+            document.getElementById('main-board').classList.remove('has-focus');
+            document.getElementById('cancel-zoom').classList.remove('visible');
+            this.focusedBoard = -1;
+            audio.sfx.zoom();
+            this.highlightValidBoards();
+        },
+
+        highlightValidBoards: function() {
+            if(this.gameOver) return;
+            document.querySelectorAll('.sub-board').forEach(el => el.classList.remove('valid-target'));
+            const color = this.turn === 'p1' ? '0, 243, 255' : '255, 0, 85';
+            document.documentElement.style.setProperty('--active-rgb', color);
+            document.documentElement.style.setProperty('--active-color', this.turn === 'p1' ? 'var(--p1-color)' : 'var(--p2-color)');
+
+            if(this.nextBoard === -1) {
+                this.globalBoard.forEach((status, idx) => {
+                    if(status === null) document.getElementById(`sub-${idx}`).classList.add('valid-target');
+                });
+            } else {
+                document.getElementById(`sub-${this.nextBoard}`).classList.add('valid-target');
+            }
+            
+            document.getElementById('p1-score-box').classList.toggle('active', this.turn === 'p1');
+            document.getElementById('p2-score-box').classList.toggle('active', this.turn === 'p2');
+            
+            if(this.turn === 'p1') {
+                document.getElementById('status-text').innerText = this.focusedBoard !== -1 ? "ESCOLHA A CÉLULA" : "ESCOLHA O TABULEIRO";
+                document.getElementById('p2-status-text').innerText = "AGUARDANDO...";
+            } else {
+                document.getElementById('status-text').innerText = "AGUARDANDO...";
+                let p2Text = this.mode === 'cpu' ? "PENSANDO..." : (this.focusedBoard !== -1 ? "ESCOLHA A CÉLULA" : "ESCOLHA O TABULEIRO");
+                document.getElementById('p2-status-text').innerText = p2Text;
+            }
+        },
+
+        executeMove: function(boardIdx, cellIdx) {
+            this.subBoards[boardIdx][cellIdx] = this.turn;
+            const cell = document.getElementById(`cell-${boardIdx}-${cellIdx}`);
+            if(cell) { cell.innerHTML = this.turn === 'p1' ? ICONS.x : ICONS.o; cell.classList.add('taken'); }
+            
+            if(this.turn === 'p1') audio.sfx.moveP1(); else audio.sfx.moveP2();
+
+            if(this.checkWin(this.subBoards[boardIdx])) {
+                this.globalBoard[boardIdx] = this.turn;
+                const subDiv = document.getElementById(`sub-${boardIdx}`);
+                if(subDiv) { subDiv.classList.add(`won-${this.turn}`); subDiv.innerHTML += this.turn === 'p1' ? BIG_ICONS.x : BIG_ICONS.o; }
+                audio.sfx.subWin();
+            } else if (this.subBoards[boardIdx].every(c => c !== null)) {
+                this.globalBoard[boardIdx] = 'draw';
+                const subDiv = document.getElementById(`sub-${boardIdx}`);
+                if(subDiv) subDiv.classList.add('draw');
+            }
+
+            const winner = this.checkWin(this.globalBoard);
+            if(winner) { this.endGame(winner); return; } 
+            else if (!this.globalBoard.includes(null)) { this.endGame('draw'); return; }
+
+            this.nextBoard = (this.globalBoard[cellIdx] !== null) ? -1 : cellIdx;
+            this.turn = this.turn === 'p1' ? 'p2' : 'p1';
+            this.highlightValidBoards();
+
+            if(this.mode === 'cpu' && this.turn === 'p2' && !this.gameOver) {
+                this.isThinking = true;
+                document.getElementById('p2-score-box').classList.add('thinking');
+                setTimeout(() => { this.cpuTurn(); }, 100);
+            }
+        },
+
+        checkWin: function(arr) {
+            for(let combo of WIN_COMBOS) {
+                if(arr[combo[0]] && arr[combo[0]] !== 'draw' && arr[combo[0]] === arr[combo[1]] && arr[combo[0]] === arr[combo[2]]) return arr[combo[0]];
+            }
+            return null;
+        },
+
+        // --- CPU LOGIC ---
+        cpuTurn: function() {
+            let moves = [];
+            if(this.nextBoard !== -1) moves = this.getMovesForBoard(this.nextBoard, this.subBoards, this.globalBoard, 'p2');
+            else for(let i=0; i<9; i++) if(this.globalBoard[i] === null) moves = moves.concat(this.getMovesForBoard(i, this.subBoards, this.globalBoard, 'p2'));
+
+            if(moves.length === 0) return;
+
+            // DIFFICULTY ROUTING
+            if(this.difficulty === 'easy') {
+                this.finalizeCpuMove((Math.random() < 0.3) ? moves[Math.floor(Math.random() * Math.min(3, moves.length))] : moves[0]);
+            } else if (this.difficulty === 'normal') {
+                // Keep normal heuristic for normal mode
+                moves.forEach(m => m.score = this.evaluateMoveScore(m.b, m.c, this.subBoards, this.globalBoard, 'p2'));
+                moves.sort((a, b) => b.score - a.score);
+                this.finalizeCpuMove(moves[0]);
+            } else { 
+                // HARD: PURE MATH (Async Chunking)
+                this.startAsyncMCTS(moves);
+            }
+        },
+
+        finalizeCpuMove: function(move) {
+            this.isThinking = false;
+            document.getElementById('p2-score-box').classList.remove('thinking');
+            document.getElementById('cpu-progress').innerText = '';
+            
+            this.focusBoard(move.b);
+            setTimeout(() => { if(!this.gameOver) { this.executeMove(move.b, move.c); this.unfocusBoard(); } }, 600);
+        },
+
+        evaluateMoveScore: function(bIdx, cIdx, subs, global, player) {
+            let score = 0;
+            const opponent = player === 'p1' ? 'p2' : 'p1';
+            const boardClone = [...subs[bIdx]]; boardClone[cIdx] = player;
+            if(this.checkWin(boardClone)) score += 100;
+            const blockCheck = [...subs[bIdx]]; blockCheck[cIdx] = opponent;
+            if(this.checkWin(blockCheck)) score += 50;
+            if(cIdx === 4) score += 10; else if([0,2,6,8].includes(cIdx)) score += 5;
+            if(global[cIdx] !== null) score -= 20; 
+            else if(this.canWin(subs[cIdx], opponent)) score -= 30;
+            return score;
+        },
+
+        getMovesForBoard: function(bIdx, subs, global, player) {
+            let validMoves = [];
+            const board = subs[bIdx];
+            for(let c=0; c<9; c++) if(board[c] === null) validMoves.push({b: bIdx, c: c, score: 0, wins: 0, sims: 0});
+            return validMoves;
+        },
+
+        canWin: function(board, player) {
+            for(let i=0; i<9; i++) if(board[i] === null) { board[i] = player; const win = this.checkWin(board); board[i] = null; if(win) return true; }
+            return false;
+        },
+
+        // --- ASYNC MONTE CARLO ENGINE (PURE NUMBERS) ---
+        mctsState: null,
+
+        startAsyncMCTS: function(possibleMoves) {
+            this.mctsState = {
+                moves: possibleMoves,
+                totalSimulationsTarget: 50000,
+                simulationsDone: 0,
+                chunkSize: 1000 
+            };
+            this.processMCTSChunk();
+        },
+
+        processMCTSChunk: function() {
+            if(!this.isThinking) return;
+            const state = this.mctsState;
+            let batchLimit = state.chunkSize;
+            
+            for(let i=0; i<batchLimit; i++) {
+                // Select a move uniformly to simulate
+                let rndMoveIdx = Math.floor(Math.random() * state.moves.length);
+                let move = state.moves[rndMoveIdx];
+                
+                let outcome = this.runSingleSimulation(move); // 1 (Win), 0 (Loss), 0.5 (Draw)
+                
+                // Pure accumulation
+                move.score += outcome;
+                move.sims++;
+                state.simulationsDone++;
+            }
+
+            let pct = Math.floor((state.simulationsDone / state.totalSimulationsTarget) * 100);
+            document.getElementById('cpu-progress').innerText = `SIMULANDO ${pct}%`;
+
+            if(state.simulationsDone >= state.totalSimulationsTarget) {
+                // Choose best win rate
+                state.moves.sort((a, b) => (b.score/b.sims) - (a.score/a.sims));
+                this.finalizeCpuMove(state.moves[0]);
+            } else {
+                setTimeout(() => this.processMCTSChunk(), 0);
+            }
+        },
+
+        runSingleSimulation: function(move) {
+            // Raw Clone
+            let s_global = [...this.globalBoard];
+            let s_subs = new Array(9);
+            for(let k=0; k<9; k++) s_subs[k] = [...this.subBoards[k]];
+
+            // Apply First Move
+            s_subs[move.b][move.c] = 'p2';
+            let justWon = false;
+            
+            if(this.checkWin(s_subs[move.b])) {
+                s_global[move.b] = 'p2'; justWon = true;
+            } else if(!s_subs[move.b].includes(null)) {
+                s_global[move.b] = 'draw';
+            }
+
+            // Immediate Termination
+            if(justWon && this.checkWin(s_global) === 'p2') return 1; // Pure Win
+
+            // Playout
+            let nextTarget = (s_global[move.c] !== null) ? -1 : move.c;
+            let currentTurn = 'p1';
+            let depth = 0;
+            const maxDepth = 60; 
+
+            while(depth < maxDepth) {
+                let simMoves = [];
+                if(nextTarget !== -1) simMoves = this.getSimpleMoves(nextTarget, s_subs);
+                else for(let k=0; k<9; k++) if(s_global[k] === null) simMoves = simMoves.concat(this.getSimpleMoves(k, s_subs));
+
+                if(simMoves.length === 0) break; // Draw
+
+                // TACTICAL PLAYOUT (Not Strategy, just sanity)
+                // If I can win a board right now, do it. If I must block, do it.
+                // Otherwise random. No bias for center/corners.
+                let chosenMove = null;
+                
+                // 1. Tactical Win
+                for(let m of simMoves) {
+                    s_subs[m.b][m.c] = currentTurn;
+                    if(this.checkWin(s_subs[m.b])) { chosenMove = m; s_subs[m.b][m.c] = null; break; }
+                    s_subs[m.b][m.c] = null;
+                }
+                // 2. Tactical Block
+                if(!chosenMove) {
+                    let opp = currentTurn === 'p1' ? 'p2' : 'p1';
+                    for(let m of simMoves) {
+                        s_subs[m.b][m.c] = opp;
+                        if(this.checkWin(s_subs[m.b])) { chosenMove = m; s_subs[m.b][m.c] = null; break; }
+                        s_subs[m.b][m.c] = null;
+                    }
+                }
+                // 3. Uniform Random
+                if(!chosenMove) chosenMove = simMoves[Math.floor(Math.random() * simMoves.length)];
+
+                // Apply
+                s_subs[chosenMove.b][chosenMove.c] = currentTurn;
+                if(this.checkWin(s_subs[chosenMove.b])) s_global[chosenMove.b] = currentTurn;
+                else if(!s_subs[chosenMove.b].includes(null)) s_global[chosenMove.b] = 'draw';
+
+                // Check State
+                let gWinner = this.checkWin(s_global);
+                if(gWinner === 'p2') return 1; // Win
+                if(gWinner === 'p1') return -100; // Strong penalty for loss to fulfill "avoid loss" requirement
+                if(!s_global.includes(null)) return 0; // Draw
+
+                nextTarget = (s_global[chosenMove.c] !== null) ? -1 : chosenMove.c;
+                currentTurn = currentTurn === 'p1' ? 'p2' : 'p1';
+                depth++;
+            }
+            
+            // Non-terminal state reached (Depth Limit):
+            // Check material advantage (Pure numbers count)
+            let p2Boards = s_global.filter(x => x === 'p2').length;
+            let p1Boards = s_global.filter(x => x === 'p1').length;
+            if (p2Boards > p1Boards) return 0.5;
+            if (p1Boards > p2Boards) return -0.5;
+            return 0;
+        },
+
+        getSimpleMoves: function(bIdx, subs) {
+            let moves = [];
+            const board = subs[bIdx];
+            for(let c=0; c<9; c++) if(board[c] === null) moves.push({b: bIdx, c: c});
+            return moves;
+        },
+
+        endGame: function(winner) {
+            this.gameOver = true;
+            this.unfocusBoard();
+            this.isThinking = false;
+            document.getElementById('p2-score-box').classList.remove('thinking');
+            document.getElementById('cpu-progress').innerText = '';
+            
+            if(winner !== 'draw') audio.sfx.gameWin();
+            
+            const modal = document.getElementById('modal-overlay');
+            const iconContainer = document.getElementById('winner-icon-container');
+            const text = document.getElementById('winner-text');
+            const sub = document.getElementById('winner-sub');
+            
+            if (winner === 'draw') {
+                iconContainer.innerHTML = '';
+                iconContainer.className = '';
+                text.innerText = "EMPATE TÁTICO";
+                text.style.color = "#fff";
+                sub.innerText = "RECURSOS ESGOTADOS";
+            } else {
+                let winnerName = winner === 'p1' ? "JOGADOR 1" : (this.mode === 'cpu' ? "CPU" : "JOGADOR 2");
+                iconContainer.innerHTML = winner === 'p1' ? ICONS.x : ICONS.o;
+                iconContainer.className = winner === 'p1' ? 'p1-mark' : 'p2-mark';
+                text.innerText = `${winnerName} VENCEU!`;
+                text.style.color = winner === 'p1' ? 'var(--p1-color)' : 'var(--p2-color)';
+                sub.innerText = "DOMÍNIO TOTAL DO SISTEMA";
+            }
+            setTimeout(() => modal.classList.add('visible'), 500);
+        }
+    };
+
+    window.onclick = function(e) {
+        if(game.focusedBoard !== -1 && !game.isThinking) {
+            if(e.target.id === 'cancel-zoom') return;
+            const expandedBoard = document.getElementById(`sub-${game.focusedBoard}`);
+            if(expandedBoard && !expandedBoard.contains(e.target)) game.unfocusBoard();
+        }
+    };
+
+    window.onload = () => { game.init(); audio.init(); };
+
+</script>
+</body>
+</html>
